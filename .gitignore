@@ -1,0 +1,30 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pth
+
+# Datasets and large files
+ml-model/data/
+ml-model/saved-models/
+*.zip
+fashion-product-images-small.zip
+ml-model/clothing-dataset-full.zip
+ml-model/indo-fashion-dataset.zip
+
+# Mac junk
+.DS_Store
+app/.DS_Store
+backend/.DS_Store
+ml-model/.DS_Store
+
+# Flutter
+app/wardrobe_plus/.dart_tool/
+app/wardrobe_plus/build/
+app/wardrobe_plus/.flutter-plugins
+app/wardrobe_plus/.flutter-plugins-dependencies
+app/wardrobe_plus/pubspec.lock
+
+# Xcode
+app/wardrobe_plus/ios/Pods/
+app/wardrobe_plus/ios/*.xcworkspace

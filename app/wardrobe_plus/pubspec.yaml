@@ -1,0 +1,30 @@
+name: wardrobe_plus
+description: ACloset AI - Smart Wardrobe Management
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # HTTP requests to Flask backend
+  http: ^1.2.0
+  
+  # Camera and image picking
+  image_picker: ^1.0.7
+  
+  # Local database
+  sqflite: ^2.3.2
+  path: ^1.9.0
+  
+  # Shared preferences (for onboarding state)
+  shared_preferences: ^2.2.2
+  
+  # Fonts
+  google_fonts: ^6.2.1
+
+flutter:
+  uses-material-design: true

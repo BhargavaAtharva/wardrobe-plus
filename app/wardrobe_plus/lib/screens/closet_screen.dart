@@ -23,6 +23,96 @@ class _ClosetScreenState extends State<ClosetScreen> {
     setState(() => _items = items);
   }
 
+  void _showEditDialog(BuildContext context, Map<String, dynamic> item) {
+    String selectedType = item['type'] ?? 'Tshirts';
+    final types = ['Tshirts', 'Shirts', 'Pants', 'Dresses', 'Kurtas', 'Outerwear'];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFFFFF8F4),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Edit Item',
+                  style: GoogleFonts.notoSerif(fontSize: 22, color: const Color(0xFF241A0E))),
+              const SizedBox(height: 8),
+              Text('Correct the AI classification if needed',
+                  style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF7E7576))),
+              const SizedBox(height: 20),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: types.map((t) => GestureDetector(
+                  onTap: () => setModalState(() => selectedType = t),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: selectedType == t ? Colors.black : const Color(0xFFF4DFCB),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(t,
+                        style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: selectedType == t ? Colors.white : const Color(0xFF241A0E))),
+                  ),
+                )).toList(),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () async {
+                        await DatabaseHelper.instance.deleteItem(item['id']);
+                        if (context.mounted) Navigator.pop(context);
+                        _loadItems();
+                      },
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFFBA1A1A)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: Text('Delete',
+                          style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFFBA1A1A))),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        await DatabaseHelper.instance.updateItemType(item['id'], selectedType);
+                        if (context.mounted) Navigator.pop(context);
+                        _loadItems();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.black,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: Text('Save',
+                          style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -88,42 +178,45 @@ class _ClosetScreenState extends State<ClosetScreen> {
                     itemCount: _items.length,
                     itemBuilder: (context, index) {
                       final item = _items[index];
-                      return Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(24),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 20)],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Container(
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFFF4DFCB),
-                                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                      return GestureDetector(
+                        onTap: () => _showEditDialog(context, item),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(24),
+                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 20)],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Container(
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFF4DFCB),
+                                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                                  ),
+                                  child: item['imagePath'] != null && File(item['imagePath']).existsSync()
+                                      ? ClipRRect(
+                                          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                                          child: Image.file(File(item['imagePath']), fit: BoxFit.cover, width: double.infinity),
+                                        )
+                                      : const Center(child: Icon(Icons.checkroom, size: 40, color: Color(0xFF241A0E))),
                                 ),
-                                child: item['imagePath'] != null && File(item['imagePath']).existsSync()
-                                    ? ClipRRect(
-                                        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-                                        child: Image.file(File(item['imagePath']), fit: BoxFit.cover, width: double.infinity),
-                                      )
-                                    : const Center(child: Icon(Icons.checkroom, size: 40, color: Color(0xFF241A0E))),
                               ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(item['type'] ?? 'Unknown',
-                                      style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF241A0E))),
-                                  Text('${item['confidence']?.toStringAsFixed(1) ?? ''}% match',
-                                      style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF7E7576))),
-                                ],
+                              Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(item['type'] ?? 'Unknown',
+                                        style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF241A0E))),
+                                    Text('${item['confidence']?.toStringAsFixed(1) ?? ''}% match',
+                                        style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF7E7576))),
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       );
                     },

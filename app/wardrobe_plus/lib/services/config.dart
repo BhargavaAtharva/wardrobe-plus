@@ -1,4 +1,4 @@
 class AppConfig {
-  static const String serverIP = '10.67.20.248';
+  static const String serverIP = '10.251.70.35';
   static const String baseUrl = 'http://$serverIP:5000';
 }

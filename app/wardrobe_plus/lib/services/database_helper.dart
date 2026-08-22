@@ -46,4 +46,18 @@ class DatabaseHelper {
     final db = await instance.database;
     return await db.query('clothing', orderBy: 'dateAdded DESC');
   }
+  Future<int> deleteItem(int id) async {
+  final db = await instance.database;
+  return await db.delete('clothing', where: 'id = ?', whereArgs: [id]);
+}
+
+Future<int> updateItemType(int id, String newType) async {
+  final db = await instance.database;
+  return await db.update(
+    'clothing',
+    {'type': newType},
+    where: 'id = ?',
+    whereArgs: [id],
+  );
+}
 }

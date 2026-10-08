@@ -190,12 +190,50 @@ class _OutfitScreenState extends State<OutfitScreen> {
 
               const SizedBox(height: 20),
 
-              // Generate new button
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton.icon(
-                  onPressed: _generateOutfit,
+              // Wear This button
+SizedBox(
+  width: double.infinity,
+  height: 52,
+  child: ElevatedButton(
+    onPressed: () async {
+      final items = _suggestion!['suggestion'] as List;
+      final itemIds = items
+          .where((i) => i['id'] != null)
+          .map<int>((i) => i['id'] as int)
+          .toList();
+      if (itemIds.isNotEmpty) {
+        await DatabaseHelper.instance.markAsWorn(itemIds);
+        await DatabaseHelper.instance.logOutfit(itemIds, _selectedOccasion);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Outfit logged for today!'),
+              backgroundColor: Colors.black,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          );
+        }
+      }
+    },
+    style: ElevatedButton.styleFrom(
+      backgroundColor: const Color(0xFFF4DFCB),
+      foregroundColor: Colors.black,
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
+    ),
+    child: Text('Wear This Today',
+        style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600)),
+  ),
+),
+const SizedBox(height: 12),
+
+// Generate new button
+SizedBox(
+  width: double.infinity,
+  height: 52,
+  child: ElevatedButton.icon(
+    onPressed: _generateOutfit,
                   icon: const Icon(Icons.auto_awesome, size: 16),
                   label: Text('Generate New Look',
                       style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600)),

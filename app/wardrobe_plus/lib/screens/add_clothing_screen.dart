@@ -1,3 +1,5 @@
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
@@ -25,11 +27,18 @@ class _AddClothingScreenState extends State<AddClothingScreen> {
 
   Future<void> _pickImage(ImageSource source) async {
     final picked = await _picker.pickImage(source: source, imageQuality: 85);
-    if (picked == null) return;
-    setState(() {
-      _image = File(picked.path);
-      _result = null;
-    });
+  if (picked == null) return;
+  
+  // Copy to permanent app directory
+  final appDir = await getApplicationDocumentsDirectory();
+  final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
+  final permanentPath = path.join(appDir.path, fileName);
+  await File(picked.path).copy(permanentPath);
+  
+  setState(() {
+    _image = File(permanentPath);
+    _result = null;
+  });
     await _classify();
   }
 

@@ -1,3 +1,5 @@
+import 'dart:io';
+import '../services/database_helper.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'closet_screen.dart';
@@ -55,8 +57,33 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class HomeDashboard extends StatelessWidget {
+class HomeDashboard extends StatefulWidget {
   const HomeDashboard({super.key});
+  @override
+  State<HomeDashboard> createState() => _HomeDashboardState();
+}
+
+class _HomeDashboardState extends State<HomeDashboard> {
+  List<Map<String, dynamic>> _recentItems = [];
+  int _totalItems = 0;
+  int _outfitsLogged = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    final recent = await DatabaseHelper.instance.getRecentItems(limit: 6);
+    final total = await DatabaseHelper.instance.getTotalItems();
+    final outfits = await DatabaseHelper.instance.getTotalOutfitsLogged();
+    setState(() {
+      _recentItems = recent;
+      _totalItems = total;
+      _outfitsLogged = outfits;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -67,25 +94,17 @@ class HomeDashboard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 20),
-            // Top bar
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('ACLOSET AI',
-                    style: GoogleFonts.inter(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 2.5,
-                        color: const Color(0xFF241A0E))),
+                    style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 2.5, color: const Color(0xFF241A0E))),
                 const Icon(Icons.notifications_outlined, size: 22, color: Color(0xFF241A0E)),
               ],
             ),
             const SizedBox(height: 32),
             Text("Today's Curations",
-                style: GoogleFonts.notoSerif(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w400,
-                    color: const Color(0xFF241A0E))),
+                style: GoogleFonts.notoSerif(fontSize: 28, fontWeight: FontWeight.w400, color: const Color(0xFF241A0E))),
             const SizedBox(height: 20),
             // Featured outfit card
             Container(
@@ -93,13 +112,7 @@ class HomeDashboard extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(28),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 30,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 30, offset: const Offset(0, 8))],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -127,29 +140,17 @@ class HomeDashboard extends StatelessWidget {
                                 color: const Color(0xFFF4DFCB),
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: Text('MINIMALIST CHIC',
-                                  style: GoogleFonts.inter(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                      letterSpacing: 1.5,
-                                      color: const Color(0xFF241A0E))),
+                              child: Text('AI CURATED',
+                                  style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: 1.5, color: const Color(0xFF241A0E))),
                             ),
-                            const Spacer(),
-                            const Icon(Icons.favorite_border, size: 20, color: Color(0xFF7E7576)),
                           ],
                         ),
                         const SizedBox(height: 12),
-                        Text('The Editorial Edit',
-                            style: GoogleFonts.notoSerif(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w400,
-                                color: const Color(0xFF241A0E))),
+                        Text('Your Daily Look',
+                            style: GoogleFonts.notoSerif(fontSize: 22, fontWeight: FontWeight.w400, color: const Color(0xFF241A0E))),
                         const SizedBox(height: 6),
-                        Text('Perfect for your upcoming meetings. Structured elegance meets comfort.',
-                            style: GoogleFonts.inter(
-                                fontSize: 13,
-                                height: 1.5,
-                                color: const Color(0xFF4C4546))),
+                        Text('Head to the outfit generator for today\'s AI suggestion.',
+                            style: GoogleFonts.inter(fontSize: 13, height: 1.5, color: const Color(0xFF4C4546))),
                         const SizedBox(height: 16),
                         SizedBox(
                           width: double.infinity,
@@ -160,12 +161,10 @@ class HomeDashboard extends StatelessWidget {
                               backgroundColor: Colors.black,
                               foregroundColor: Colors.white,
                               elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(24)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                             ),
-                            child: Text('Wear This',
-                                style: GoogleFonts.inter(
-                                    fontSize: 14, fontWeight: FontWeight.w600)),
+                            child: Text('Generate Outfit',
+                                style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600)),
                           ),
                         ),
                       ],
@@ -180,45 +179,45 @@ class HomeDashboard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('Recently Added',
-                    style: GoogleFonts.inter(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF241A0E))),
+                    style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w600, color: const Color(0xFF241A0E))),
                 Text('VIEW ALL',
-                    style: GoogleFonts.inter(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 1.5,
-                        color: const Color(0xFF7E7576))),
+                    style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.5, color: const Color(0xFF7E7576))),
               ],
             ),
             const SizedBox(height: 16),
-            SizedBox(
-              height: 140,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  _recentItem('Linen Blazer', 'Acne Studios'),
-                  _recentItem('Minimalist Sneaker', 'Common Projects'),
-                  _recentItem('Silk Dress', 'Theory'),
-                ],
-              ),
-            ),
+            _recentItems.isEmpty
+                ? Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF4DFCB),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text('Add clothes using the + button',
+                        style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF4C4546))),
+                  )
+                : SizedBox(
+                    height: 140,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _recentItems.length,
+                      itemBuilder: (context, index) {
+                        final item = _recentItems[index];
+                        return _recentItemCard(item);
+                      },
+                    ),
+                  ),
             const SizedBox(height: 32),
             // Closet Insights
             Text('Closet Insights',
-                style: GoogleFonts.inter(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF241A0E))),
+                style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w600, color: const Color(0xFF241A0E))),
             const SizedBox(height: 16),
             Row(
               children: [
-                Expanded(child: _insightCard('142', 'TOTAL ITEMS', Icons.checkroom_outlined)),
+                Expanded(child: _insightCard(_totalItems.toString(), 'TOTAL ITEMS', Icons.checkroom_outlined)),
                 const SizedBox(width: 12),
-                Expanded(child: _insightCard('85%', 'WEAR RATE', Icons.eco_outlined)),
+                Expanded(child: _insightCard(_outfitsLogged.toString(), 'OUTFITS LOGGED', Icons.auto_awesome_outlined)),
                 const SizedBox(width: 12),
-                Expanded(child: _insightCard('\$2.4k', 'VALUE', Icons.trending_up)),
+                Expanded(child: _insightCard('${_recentItems.length}', 'RECENT', Icons.fiber_new_outlined)),
               ],
             ),
             const SizedBox(height: 32),
@@ -228,7 +227,7 @@ class HomeDashboard extends StatelessWidget {
     );
   }
 
-  Widget _recentItem(String name, String brand) {
+  Widget _recentItemCard(Map<String, dynamic> item) {
     return Container(
       width: 110,
       margin: const EdgeInsets.only(right: 12),
@@ -241,27 +240,28 @@ class HomeDashboard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: Container(
-              decoration: const BoxDecoration(
-                color: Color(0xFFF4DFCB),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-              ),
-              child: const Center(child: Icon(Icons.checkroom, color: Color(0xFF241A0E))),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              child: item['imagePath'] != null && File(item['imagePath']).existsSync()
+                  ? Image.file(File(item['imagePath']), fit: BoxFit.cover, width: double.infinity)
+                  : Container(
+                      color: const Color(0xFFF4DFCB),
+                      child: const Center(child: Icon(Icons.checkroom, color: Color(0xFF241A0E))),
+                    ),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name,
+                Text(item['type'] ?? '',
                     style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF241A0E)),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
-                Text(brand,
-                    style: GoogleFonts.inter(fontSize: 10, color: const Color(0xFF7E7576)),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                if (item['color'] != null)
+                  Text(item['color'],
+                      style: GoogleFonts.inter(fontSize: 10, color: const Color(0xFF7E7576)),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
               ],
             ),
           ),

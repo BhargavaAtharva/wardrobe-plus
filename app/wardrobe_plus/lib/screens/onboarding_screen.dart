@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../services/user_profile.dart';
 import 'login_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -19,7 +19,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       'tag2': 'CHARCOAL',
       'tag3': 'MINIMALIST',
       'title': 'AI-Powered\nOrganization.',
-      'body': 'Our ML model automatically identifies type, color, and style, removing backgrounds for a clean look.',
+      'body': 'Our model identifies the type and colour of each piece, removing the background for a clean look.',
       'button': 'Continue',
     },
     {
@@ -35,14 +35,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       'tag2': 'DAILY',
       'tag3': 'SMART',
       'title': 'Smart\nSuggestions.',
-      'body': 'Receive personalized outfit ideas tailored to your wardrobe and the occasion.',
+      'body': 'Get outfit ideas for the occasion that bring back the pieces you haven\'t worn in a while.',
       'button': 'Get Started',
     },
   ];
 
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
   Future<void> _finish() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('onboarding_done', true);
+    await UserProfile.setOnboardingDone();
     if (mounted) {
       Navigator.pushReplacement(
         context,

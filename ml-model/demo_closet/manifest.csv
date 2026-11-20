@@ -1,0 +1,27 @@
+filename,type,color,confidence,source
+tshirts_01_red.jpg,Tshirts,red,100.0,clothes/tshirts/T-Shirt_686.jpg
+tshirts_02_multicolor.jpg,Tshirts,multicolor,100.0,clothes/tshirts/T-Shirt_816.jpg
+tshirts_03_navy.jpg,Tshirts,navy,100.0,clothes/tshirts/T-Shirt_889.jpg
+tshirts_04_white.jpg,Tshirts,white,100.0,clothes/tshirts/T-Shirt_871.jpg
+tshirts_05_maroon.jpg,Tshirts,maroon,99.9,clothes/tshirts/T-Shirt_496.jpg
+tshirts_06_light-blue.jpg,Tshirts,light blue,99.8,clothes/tshirts/T-Shirt_421.jpg
+tshirts_07_blue.jpg,Tshirts,blue,100.0,clothes/tshirts/T-Shirt_177.jpg
+shirts_01_multicolor.jpg,Shirts,multicolor,100.0,clothes/shirts/Shirt_270.jpg
+shirts_02_blue.jpg,Shirts,blue,100.0,clothes/shirts/Shirt_43.jpg
+shirts_03_navy.jpg,Shirts,navy,100.0,clothes/shirts/Shirt_344.jpg
+shirts_04_white.jpg,Shirts,white,100.0,clothes/shirts/Shirt_296.jpg
+shirts_05_red.jpg,Shirts,red,100.0,clothes/shirts/Shirt_313.jpg
+pants_01_white.jpg,Pants,white,100.0,clothes/pants/Pants_415.jpg
+pants_02_black.jpg,Pants,black,100.0,clothes/pants/Pants_512.jpg
+pants_03_blue.jpg,Pants,blue,100.0,clothes/pants/Pants_571.jpg
+pants_04_navy.jpg,Pants,navy,100.0,clothes/pants/Pants_485.jpg
+pants_05_maroon.jpg,Pants,maroon,100.0,clothes/pants/Pants_488.jpg
+pants_06_olive.jpg,Pants,olive,100.0,clothes/pants/Pants_135.jpg
+pants_07_grey.jpg,Pants,grey,100.0,clothes/pants/Pants_348.jpg
+pants_08_black.jpg,Pants,black,100.0,clothes/pants/Pants_660.jpg
+dresses_01_black.jpg,Dresses,black,100.0,clothes/dress/Dress_23.jpg
+dresses_02_red.jpg,Dresses,red,100.0,clothes/dress/Dress_86.jpg
+dresses_03_multicolor.jpg,Dresses,multicolor,100.0,clothes/dress/Dress_259.jpg
+dresses_04_navy.jpg,Dresses,navy,100.0,clothes/dress/Dress_212.jpg
+outerwear_01_black.jpeg,Outerwear,black,,clothes/jackets/WhatsApp Image 2026-08-09 at 7.00.09 PM-2.jpeg
+outerwear_02_navy.jpeg,Outerwear,navy,,clothes/jackets/WhatsApp Image 2026-08-09 at 7.00.08 PM-2.jpeg

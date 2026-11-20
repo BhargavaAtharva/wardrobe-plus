@@ -1,278 +1,259 @@
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as path;
-import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:http/http.dart' as http;
 import 'dart:io';
-import 'dart:convert';
-import '../services/database_helper.dart';
-import 'dart:async';
-import '../services/config.dart';
 
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+
+import '../services/api_client.dart';
+import '../services/catalog.dart';
+import '../services/database_helper.dart';
+import '../services/image_store.dart';
+import '../theme.dart';
+import '../widgets/common.dart';
+
+/// Photo -> AI suggests type and colour -> user confirms or corrects -> saved.
 class AddClothingScreen extends StatefulWidget {
-  const AddClothingScreen({super.key});
+  final VoidCallback? onAdded;
+  const AddClothingScreen({super.key, this.onAdded});
   @override
   State<AddClothingScreen> createState() => _AddClothingScreenState();
 }
 
 class _AddClothingScreenState extends State<AddClothingScreen> {
-  File? _image;
-  bool _loading = false;
-  Map<String, dynamic>? _result;
-  final _picker = ImagePicker();
+  static const _unsureBelow = 70.0; // AI confidence (%) below which we ask the user to check
 
-  // Change this to your Mac's local IP when testing on real device
-  static const String _baseUrl = AppConfig.baseUrl;
+  final _picker = ImagePicker();
+  File? _image;
+  bool _analyzing = false;
+  bool _saving = false;
+  Map<String, dynamic>? _result;
+  ApiException? _error;
+  String? _type;
+  String? _color;
 
   Future<void> _pickImage(ImageSource source) async {
-    final picked = await _picker.pickImage(source: source, imageQuality: 85);
-  if (picked == null) return;
-  
-  // Copy to permanent app directory
-  final appDir = await getApplicationDocumentsDirectory();
-  final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
-  final permanentPath = path.join(appDir.path, fileName);
-  await File(picked.path).copy(permanentPath);
-  
-  setState(() {
-    _image = File(permanentPath);
-    _result = null;
-  });
+    XFile? picked;
+    try {
+      picked = await _picker.pickImage(source: source, imageQuality: 85, maxWidth: 2000);
+    } on PlatformException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(source == ImageSource.camera
+            ? 'Camera unavailable (${e.code}). Use Upload instead.'
+            : 'Could not open photos (${e.code}). Check photo permissions in Settings.'),
+      ));
+      return;
+    }
+    if (picked == null || !mounted) return;
+    setState(() {
+      _image = File(picked!.path);
+      _result = null;
+      _error = null;
+      _type = null;
+      _color = null;
+    });
     await _classify();
   }
 
   Future<void> _classify() async {
     if (_image == null) return;
-    if (!mounted) return;
-    setState(() => _loading = true);
+    setState(() {
+      _analyzing = true;
+      _error = null;
+    });
     try {
-      final request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/classify'));
-      request.files.add(await http.MultipartFile.fromPath('image', _image!.path));
-      request.headers['Connection'] = 'keep-alive';
-      final response = await request.send().timeout(const Duration(seconds: 60));
-      final body = await response.stream.bytesToString();
+      final result = await ApiClient.classify(_image!);
       if (!mounted) return;
-      setState(() => _result = json.decode(body));
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _result = {'error': 'Could not connect to server. Make sure Flask is running.'});
+      if (result['error'] != null) {
+        setState(() => _error = ApiException(result['message'] as String? ?? 'Could not analyse this photo.'));
+      } else {
+        setState(() {
+          _result = result;
+          _type = result['type'] as String?;
+          final color = result['color'] as String?;
+          _color = Catalog.colorNames.contains(color) ? color : null; // "unknown" -> user picks
+        });
+      }
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e);
     } finally {
-      if (!mounted) return;
-      setState(() => _loading = false);
+      if (mounted) setState(() => _analyzing = false);
     }
   }
 
+  /// Lets the user tag the photo themselves when the server can't be reached.
+  void _tagManually() => setState(() {
+        _error = null;
+        _result = {'manual': true};
+        _type = null;
+        _color = null;
+      });
+
+  Future<void> _save() async {
+    if (_image == null || _type == null || _color == null) return;
+    setState(() => _saving = true);
+    try {
+      final stored = await ImageStore.save(_image!);
+      final confidence = _result?['manual'] == true || _type != _result?['type'] ? null : _result?['confidence'];
+      await DatabaseHelper.instance.insertItem({
+        'type': _type,
+        'color': _color,
+        'confidence': confidence,
+        'imagePath': stored,
+        'dateAdded': DateTime.now().toIso8601String(),
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${Catalog.typeLabel(_type)} added to your closet')));
+      _reset();
+      widget.onAdded?.call();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save the item: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  void _reset() => setState(() {
+        _image = null;
+        _result = null;
+        _error = null;
+        _type = null;
+        _color = null;
+      });
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFFF8F4),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Top bar
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: () => Navigator.maybePop(context),
-                    child: const Icon(Icons.close, size: 22, color: Color(0xFF241A0E)),
-                  ),
-                  const Spacer(),
-                  Text('Add Clothing',
-                      style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600, color: const Color(0xFF241A0E))),
-                  const Spacer(),
-                  const Icon(Icons.flash_auto_outlined, size: 22, color: Color(0xFF241A0E)),
-                ],
-              ),
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  children: [
-                    // Camera preview area
-                    GestureDetector(
-                      onTap: () => _pickImage(ImageSource.camera),
-                      child: Container(
-                        width: double.infinity,
-                        height: 320,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF4DFCB),
-                          borderRadius: BorderRadius.circular(28),
-                        ),
-                        child: _image != null
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(28),
-                                child: Image.file(_image!, fit: BoxFit.cover),
-                              )
-                            : Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(Icons.photo_camera_outlined, size: 48, color: Color(0xFF241A0E)),
-                                  const SizedBox(height: 12),
-                                  Text('Tap to take photo',
-                                      style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF4C4546))),
-                                  const SizedBox(height: 4),
-                                  Text('Use a plain background for best results',
-                                      style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF7E7576))),
-                                ],
-                              ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    // Gallery and flip buttons
-                    Row(
+    return SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        children: [
+          BrandBar(
+            trailing: _image == null
+                ? null
+                : GestureDetector(onTap: _reset, child: Text('Start over', style: AppText.body(size: 13, color: AppColors.muted))),
+          ),
+          Text('Add Clothing', style: AppText.title(28)),
+          const SizedBox(height: 20),
+          GestureDetector(
+            onTap: _analyzing ? null : () => _pickImage(ImageSource.camera),
+            child: Container(
+              width: double.infinity,
+              height: 320,
+              decoration: BoxDecoration(color: AppColors.sand, borderRadius: BorderRadius.circular(28)),
+              child: _image != null
+                  ? ClipRRect(borderRadius: BorderRadius.circular(28), child: Image.file(_image!, fit: BoxFit.cover))
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Expanded(
-                          child: _actionButton(
-                            icon: Icons.photo_library_outlined,
-                            label: 'Upload',
-                            onTap: () => _pickImage(ImageSource.gallery),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _actionButton(
-                            icon: Icons.flip_camera_ios_outlined,
-                            label: 'Flip',
-                            onTap: () => _pickImage(ImageSource.camera),
-                          ),
-                        ),
+                        const Icon(Icons.photo_camera_outlined, size: 48, color: AppColors.ink),
+                        const SizedBox(height: 12),
+                        Text('Tap to take a photo', style: AppText.body(color: AppColors.inkSoft)),
+                        const SizedBox(height: 4),
+                        Text('One item, laid flat. A plain background works best.',
+                            style: AppText.body(size: 12, color: AppColors.muted)),
                       ],
                     ),
-                    const SizedBox(height: 24),
-                    // Result area
-                    if (_loading)
-                      Column(
-                        children: [
-                          const CircularProgressIndicator(color: Colors.black),
-                          const SizedBox(height: 12),
-                          Text('Analyzing Look...',
-                              style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF4C4546))),
-                        ],
-                      ),
-                    if (_result != null && !_loading) ...[
-                      if (_result!['error'] != null)
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFDAD6),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Text(_result!['error'],
-                              style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF93000A))),
-                        )
-                      else
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(24),
-                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20)],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('AI Tags',
-                                  style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 1.5, color: const Color(0xFF7E7576))),
-                              const SizedBox(height: 12),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  _tag(_result!['type'] ?? ''),
-                                  if (_result!['color'] != null)
-                                    _tag(_result!['color']),
-                                  if (_result!['confidence'] != null)
-                                    _tag('${_result!['confidence']}% match'),
-                                ],
-                              ),
-                              const SizedBox(height: 20),
-                              SizedBox(
-                                width: double.infinity,
-                                height: 52,
-                                child: ElevatedButton(
-                                 onPressed: () async {
-                                  await DatabaseHelper.instance.insertItem({
-                                    'type': _result!['type'],
-                                    'color': _result!['color'] ?? 'unknown',
-                                    'confidence': _result!['confidence'],
-                                    'imagePath': _image!.path,
-                                    'dateAdded': DateTime.now().toIso8601String(),
-                                  });
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('${_result!['type']} added to closet!'),
-                                        backgroundColor: Colors.black,
-                                        behavior: SnackBarBehavior.floating,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                      ),
-                                    );
-                                    setState(() {
-                                      _image = null;
-                                      _result = null;
-                                    });
-                                  }
-                                },
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.black,
-                                    foregroundColor: Colors.white,
-                                    elevation: 0,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
-                                  ),
-                                  child: Text('Add to Closet',
-                                      style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600)),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                    const SizedBox(height: 32),
-                  ],
-                ),
-              ),
             ),
+          ),
+          const SizedBox(height: 16),
+          Row(children: [
+            Expanded(child: _actionButton(Icons.photo_camera_outlined, 'Camera', () => _pickImage(ImageSource.camera))),
+            const SizedBox(width: 12),
+            Expanded(child: _actionButton(Icons.photo_library_outlined, 'Upload', () => _pickImage(ImageSource.gallery))),
+          ]),
+          const SizedBox(height: 24),
+          if (_analyzing)
+            Column(children: [
+              const CircularProgressIndicator(color: Colors.black),
+              const SizedBox(height: 12),
+              Text('Analysing… removing the background and identifying the piece',
+                  textAlign: TextAlign.center, style: AppText.body(size: 13, color: AppColors.inkSoft)),
+              Text('Busy backgrounds can take up to 15 seconds.',
+                  textAlign: TextAlign.center, style: AppText.body(size: 12, color: AppColors.muted)),
+            ]),
+          if (_error != null && !_analyzing) ...[
+            ErrorCard(message: _error!.message, onRetry: _classify, showServerSettings: _error!.serverUnreachable),
+            TextButton(onPressed: _tagManually, child: Text('Tag it myself instead', style: AppText.body(size: 13, weight: FontWeight.w600))),
           ],
-        ),
+          if (_result != null && !_analyzing) _resultCard(),
+          const SizedBox(height: 32),
+        ],
       ),
     );
   }
 
-  Widget _actionButton({required IconData icon, required String label, required VoidCallback onTap}) {
+  Widget _resultCard() {
+    final manual = _result!['manual'] == true;
+    final confidence = (_result!['confidence'] as num?)?.toDouble();
+    final unsure = !manual && confidence != null && confidence < _unsureBelow;
+    final alternatives = (_result!['alternatives'] as List? ?? [])
+        .where((a) => (a['confidence'] as num) >= 10)
+        .map((a) => Catalog.typeLabel(a['type'] as String?))
+        .toList();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(24), boxShadow: cardShadow),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(manual ? 'TAG THIS PIECE' : 'AI TAGS — TAP TO CORRECT', style: AppText.label()),
+          if (!manual && confidence != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              unsure
+                  ? 'Not sure (${confidence.toStringAsFixed(0)}%). Please check the type'
+                      '${alternatives.isEmpty ? '' : ' — it could also be ${alternatives.join(' or ')}'}.'
+                  : '${confidence.toStringAsFixed(0)}% confident this is a ${Catalog.typeLabel(_result!['type'] as String?).toLowerCase()}.',
+              style: AppText.body(size: 13, color: unsure ? AppColors.errorText : AppColors.inkSoft),
+            ),
+          ],
+          const SizedBox(height: 16),
+          Text('TYPE', style: AppText.label()),
+          const SizedBox(height: 8),
+          TypeSelector(selected: _type, onChanged: (t) => setState(() => _type = t)),
+          const SizedBox(height: 16),
+          Text('COLOUR', style: AppText.label()),
+          const SizedBox(height: 8),
+          ColorSelector(selected: _color, onChanged: (c) => setState(() => _color = c)),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton(
+              key: const Key('add-to-closet'),
+              onPressed: _type == null || _color == null || _saving ? null : _save,
+              style: primaryButton(),
+              child: _saving
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : Text(_type == null || _color == null ? 'Choose a type and colour' : 'Add to Closet',
+                      style: AppText.body(size: 15, weight: FontWeight.w600, color: Colors.white)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _actionButton(IconData icon, String label, VoidCallback onTap) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: _analyzing ? null : onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF4DFCB),
-          borderRadius: BorderRadius.circular(16),
-        ),
+        decoration: BoxDecoration(color: AppColors.sand, borderRadius: BorderRadius.circular(16)),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 18, color: const Color(0xFF241A0E)),
+            Icon(icon, size: 18, color: AppColors.ink),
             const SizedBox(width: 8),
-            Text(label, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500, color: const Color(0xFF241A0E))),
+            Text(label, style: AppText.body(size: 13, weight: FontWeight.w500)),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _tag(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF4DFCB),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(label,
-          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF241A0E))),
     );
   }
 }

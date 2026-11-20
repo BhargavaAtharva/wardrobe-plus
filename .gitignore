@@ -12,6 +12,11 @@ fashion-product-images-small.zip
 ml-model/clothing-dataset-full.zip
 ml-model/indo-fashion-dataset.zip
 
+# Backend
+backend/uploads/
+backend/data/
+.pytest_cache/
+
 # Mac junk
 .DS_Store
 app/.DS_Store
@@ -23,7 +28,6 @@ app/wardrobe_plus/.dart_tool/
 app/wardrobe_plus/build/
 app/wardrobe_plus/.flutter-plugins
 app/wardrobe_plus/.flutter-plugins-dependencies
-app/wardrobe_plus/pubspec.lock
 
 # Xcode
 app/wardrobe_plus/ios/Pods/

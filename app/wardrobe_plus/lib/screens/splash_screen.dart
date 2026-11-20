@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'onboarding_screen.dart';
+import '../services/user_profile.dart';
 import 'home_screen.dart';
+import 'login_screen.dart';
+import 'onboarding_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -19,19 +20,16 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _navigate() async {
-    await Future.delayed(const Duration(seconds: 2));
-    final prefs = await SharedPreferences.getInstance();
-    final onboardingDone = prefs.getBool('onboarding_done') ?? false;
-    if (mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => onboardingDone
-              ? const HomeScreen()
-              : const OnboardingScreen(),
-        ),
-      );
-    }
+    await Future.delayed(const Duration(milliseconds: 1200));
+    final onboardingDone = await UserProfile.onboardingDone();
+    final signedIn = await UserProfile.restore(); // opens this profile's closet
+    if (!mounted) return;
+    final Widget next = !onboardingDone
+        ? const OnboardingScreen()
+        : signedIn
+            ? const HomeScreen()
+            : const LoginScreen();
+    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => next));
   }
 
   @override

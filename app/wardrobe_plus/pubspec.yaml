@@ -26,7 +26,19 @@ dependencies:
   # Fonts
   google_fonts: ^6.2.1
 
+  # Permanent storage folder for clothing photos
   path_provider: ^2.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  # Lets the integration test feed a photo to the Add screen
+  image_picker_platform_interface: ^2.11.1
+  # Real SQLite in unit tests (runs on the Mac, no simulator needed)
+  sqflite_common_ffi: ^2.3.4
 
 flutter:
   uses-material-design: true

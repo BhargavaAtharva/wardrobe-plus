@@ -1,23 +1,38 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+import io
+import os
+
 import torch
 import torch.nn as nn
-from torchvision import models, transforms
-from PIL import Image
-import io
-import json
-from rembg import remove
-import cv2
+from flask import Flask, jsonify, request
+from flask_cors import CORS
 import numpy as np
-import os
-import random
+from PIL import Image, ImageOps, UnidentifiedImageError
+from rembg import new_session, remove
+from torchvision import models, transforms
+
+import accounts
+from accounts import require_auth
+from color_detect import COLOR_NAMES, detect_color
+from matcher import match
+from recommender import OCCASION_FIT, recommend
 
 app = Flask(__name__)
 CORS(app)
+app.register_blueprint(accounts.bp)
+accounts.init_db()
+accounts.ensure_demo_account()
 
-# Load model
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-checkpoint = torch.load(os.path.join(BASE_DIR, '../ml-model/saved-models/model.pth'), map_location='cpu')
+MODEL_PATH = os.environ.get(
+    'WARDROBE_MODEL', os.path.join(BASE_DIR, '../ml-model/saved-models/model.pth'))
+
+# Clothing types the app supports. The model only predicts some of them; the
+# rest (Outerwear) are set by the user when editing an item. Kurtas were dropped:
+# the model can't recognise them and they made poor Office/Party suggestions.
+APP_TYPES = ['Tshirts', 'Shirts', 'Pants', 'Dresses', 'Outerwear']
+
+# Load model once at startup
+checkpoint = torch.load(MODEL_PATH, map_location='cpu')
 class_names = checkpoint['class_names']
 
 model = models.efficientnet_b0(weights=None)
@@ -32,243 +47,129 @@ transform = transforms.Compose([
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
-# Color compatibility matrix
-COLOR_PAIRS = {
-    'black': ['white', 'grey', 'beige', 'blue', 'red', 'pink', 'yellow', 'green', 'brown', 'multicolor', 'dark grey'],
-    'white': ['black', 'grey', 'beige', 'blue', 'red', 'pink', 'yellow', 'green', 'brown', 'navy', 'dark grey'],
-    'grey': ['black', 'white', 'beige', 'blue', 'red', 'pink', 'yellow', 'green', 'brown', 'multicolor', 'dark grey'],
-    'dark grey': ['black', 'white', 'beige', 'blue', 'red', 'pink', 'yellow', 'green', 'brown', 'multicolor'],
-    'beige': ['black', 'white', 'grey', 'brown', 'blue', 'green', 'navy'],
-    'blue': ['white', 'grey', 'black', 'beige', 'brown', 'navy'],
-    'navy': ['white', 'beige', 'grey', 'blue', 'brown'],
-    'brown': ['beige', 'white', 'grey', 'green', 'navy'],
-    'green': ['white', 'beige', 'brown', 'navy', 'black'],
-    'red': ['black', 'white', 'grey', 'navy'],
-    'pink': ['white', 'grey', 'black', 'navy'],
-    'yellow': ['white', 'grey', 'navy', 'black'],
-    'purple': ['white', 'grey', 'black', 'beige'],
-    'multicolor': ['black', 'white', 'grey'],
-    'unknown': ['black', 'white', 'grey', 'beige'],
-}
+# Background removal uses two models. u2net is fast (~2s) and fine on plain
+# backgrounds, but on striped/patterned bedsheets it often keeps the sheet or
+# only a logo. When its mask looks like a failure we re-run with BiRefNet-lite,
+# which is slower (~12s) but handles busy backgrounds far better.
+# Sessions are created once; creating them per request reloads the model.
+fast_session = new_session('u2net')
+robust_session = new_session('birefnet-general-lite')
 
-OCCASION_RULES = {
-    'Casual': {
-        'allowed_tops': ['Tshirts', 'Shirts', 'Kurtas'],
-        'allowed_bottoms': ['Pants'],
-        'allow_dresses': True,
-        'allow_outerwear': True,
-    },
-    'Office': {
-        'allowed_tops': ['Shirts', 'Kurtas'],
-        'allowed_bottoms': ['Pants'],
-        'allow_dresses': True,
-        'allow_outerwear': True,
-    },
-    'Party': {
-        'allowed_tops': ['Tshirts', 'Shirts'],
-        'allowed_bottoms': ['Pants'],
-        'allow_dresses': True,
-        'allow_outerwear': False,
-    },
-    'Travel': {
-        'allowed_tops': ['Tshirts', 'Shirts', 'Kurtas'],
-        'allowed_bottoms': ['Pants'],
-        'allow_dresses': True,
-        'allow_outerwear': True,
-    },
-}
+MAX_SIDE = 1280             # phone photos are ~4000px; downscale for speed
+MIN_FOREGROUND = 0.25       # cut-out smaller than this share of the photo -> suspicious
+MAX_SOFT_EDGE = 0.10        # lots of half-transparent pixels -> model was unsure
 
-def colors_match(color1, color2):
-    if color1 == color2:
-        return True
-    return color2 in COLOR_PAIRS.get(color1, [])
 
-def get_outfit_reason(top, bottom, weather_desc, occasion):
-    reasons = []
-    if occasion == 'Office':
-        reasons.append("Professional look")
-    elif occasion == 'Party':
-        reasons.append("Party ready")
-    elif occasion == 'Travel':
-        reasons.append("Travel comfortable")
-    else:
-        reasons.append("Casual everyday look")
-    if weather_desc:
-        reasons.append(f"suited for {weather_desc}")
-    return ", ".join(reasons)
+def _load_image(image_bytes):
+    image = Image.open(io.BytesIO(image_bytes))
+    image = ImageOps.exif_transpose(image).convert('RGB')
+    image.thumbnail((MAX_SIDE, MAX_SIDE))
+    return image
+
+
+def _mask_stats(cutout):
+    alpha = np.array(cutout)[:, :, 3]
+    foreground = float((alpha > 160).mean())
+    soft = float(((alpha > 20) & (alpha < 235)).mean())
+    return foreground, soft
+
+
+def segment(image):
+    """Cut the garment out of the photo. Returns (rgba_cutout, model_used)."""
+    cutout = remove(image, session=fast_session).convert('RGBA')
+    foreground, soft = _mask_stats(cutout)
+    if foreground >= MIN_FOREGROUND and soft <= MAX_SOFT_EDGE:
+        return cutout, 'u2net'
+    robust = remove(image, session=robust_session).convert('RGBA')
+    if _mask_stats(robust)[0] > foreground:
+        return robust, 'birefnet-general-lite'
+    return cutout, 'u2net'
+
 
 def remove_background(image_bytes):
-    output_bytes = remove(image_bytes)
-    image = Image.open(io.BytesIO(output_bytes)).convert('RGBA')
-    background = Image.new('RGBA', image.size, (255, 255, 255, 255))
-    background.paste(image, mask=image.split()[3])
-    return background.convert('RGB')
+    """Returns (rgba_cutout, rgb_on_white, model_used). Raises on unreadable images."""
+    cutout, used = segment(_load_image(image_bytes))
+    background = Image.new('RGBA', cutout.size, (255, 255, 255, 255))
+    background.paste(cutout, mask=cutout.split()[3])
+    return cutout, background.convert('RGB'), used
 
-def detect_color(image):
-    img_array = np.array(image)
-    img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
-
-    lower_white = np.array([0, 0, 180])
-    upper_white = np.array([180, 40, 255])
-    white_mask = cv2.inRange(img_cv, lower_white, upper_white)
-    clothing_mask = cv2.bitwise_not(white_mask)
-
-    clothing_pixels = img_cv[clothing_mask > 0]
-
-    if len(clothing_pixels) == 0:
-        return "unknown"
-
-    avg_hue = np.mean(clothing_pixels[:, 0])
-    avg_sat = np.mean(clothing_pixels[:, 1])
-    avg_val = np.mean(clothing_pixels[:, 2])
-
-    hue_std = np.std(clothing_pixels[:, 0])
-    if hue_std > 40 and avg_sat > 50:
-        return "multicolor"
-
-    if avg_sat < 40:
-        if avg_val > 210:
-            return "white"
-        elif avg_val > 170:
-            return "beige"
-        elif avg_val > 120:
-            return "grey"
-        elif avg_val > 60:
-            return "dark grey"
-        else:
-            return "black"
-
-    if avg_sat < 80:
-        if avg_val > 180:
-            return "beige"
-        elif avg_hue < 35:
-            return "brown"
-
-    # Denim blue detection
-    if avg_hue > 85 and avg_hue < 135 and avg_val > 60:
-        return "blue"
-
-    if avg_hue < 10 or avg_hue > 170:
-        return "red"
-    elif avg_hue < 20:
-        return "orange"
-    elif avg_hue < 38:
-        return "yellow"
-    elif avg_hue < 85:
-        return "green"
-    elif avg_hue < 130:
-        return "blue"
-    elif avg_hue < 160:
-        return "purple"
-    elif avg_hue < 170:
-        return "pink"
-    else:
-        return "red"
 
 def predict_clothing(image_bytes):
-    image = remove_background(image_bytes)
-    color = detect_color(image)
-    tensor = transform(image).unsqueeze(0)
+    cutout, on_white, segmenter = remove_background(image_bytes)
+    color, _ = detect_color(cutout)
+    tensor = transform(on_white).unsqueeze(0)
     with torch.no_grad():
-        outputs = model(tensor)
-        probabilities = torch.nn.functional.softmax(outputs[0], dim=0)
-        confidence, predicted = probabilities.max(0)
-        predicted_class = class_names[predicted.item()]
+        probabilities = torch.nn.functional.softmax(model(tensor)[0], dim=0)
+    top = torch.topk(probabilities, k=min(3, len(class_names)))
+    ranked = [
+        {'type': class_names[idx], 'confidence': round(p * 100, 1)}
+        for p, idx in zip(top.values.tolist(), top.indices.tolist())
+    ]
     return {
-        "type": predicted_class,
-        "color": color,
-        "confidence": round(confidence.item() * 100, 1)
+        'type': ranked[0]['type'],
+        'confidence': ranked[0]['confidence'],
+        'color': color,
+        'alternatives': ranked[1:],
+        'segmenter': segmenter,
     }
+
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({"status": "ok", "classes": class_names})
-
-@app.route('/classify', methods=['POST'])
-def classify():
-    if 'image' not in request.files:
-        return jsonify({"error": "No image provided"}), 400
-    image_file = request.files['image']
-    image_bytes = image_file.read()
-    result = predict_clothing(image_bytes)
-    return jsonify(result)
-
-@app.route('/suggest', methods=['POST'])
-def suggest():
-    data = request.get_json()
-    items = data.get('items', [])
-    weather = data.get('weather', {})
-    occasion = data.get('occasion', 'Casual')
-    exclude_ids = data.get('exclude_ids', [])
-
-    temp = weather.get('temp', 25)
-    weather_desc = weather.get('description', '')
-
-    if not items:
-        return jsonify({"error": "No items in wardrobe"}), 400
-
-    rules = OCCASION_RULES.get(occasion, OCCASION_RULES['Casual'])
-
-    tops = [i for i in items if i.get('type') in rules['allowed_tops'] and i.get('id') not in exclude_ids]
-    bottoms = [i for i in items if i.get('type') in rules['allowed_bottoms'] and i.get('id') not in exclude_ids]
-    dresses = [i for i in items if i.get('type') == 'Dresses' and rules['allow_dresses'] and i.get('id') not in exclude_ids]
-    outerwear = [i for i in items if i.get('type') in ['Outerwear', 'Jackets'] and rules['allow_outerwear'] and i.get('id') not in exclude_ids]
-
-    suggestion = []
-    reason = ""
-    match_score = 0
-
-    if tops and bottoms:
-        random.shuffle(tops)
-        random.shuffle(bottoms)
-
-        best_top = None
-        best_bottom = None
-
-        for top in tops:
-            for bottom in bottoms:
-                if colors_match(top.get('color', 'unknown'), bottom.get('color', 'unknown')):
-                    best_top = top
-                    best_bottom = bottom
-                    break
-            if best_top:
-                break
-
-        if not best_top:
-            best_top = random.choice(tops)
-            best_bottom = random.choice(bottoms)
-            match_score = 70
-        else:
-            match_score = 92
-
-        suggestion = [best_top, best_bottom]
-        reason = get_outfit_reason(best_top, best_bottom, weather_desc, occasion)
-
-        if temp < 20 and outerwear and rules['allow_outerwear']:
-            matching_outer = [o for o in outerwear if
-                colors_match(best_top.get('color', 'unknown'), o.get('color', 'unknown'))]
-            if matching_outer:
-                suggestion.append(random.choice(matching_outer))
-                match_score = min(match_score + 5, 99)
-
-    elif dresses and rules['allow_dresses']:
-        dress = random.choice(dresses)
-        suggestion = [dress]
-        reason = get_outfit_reason(None, None, weather_desc, occasion)
-        match_score = 88
-
-    elif tops:
-        suggestion = [random.choice(tops)]
-        reason = "Styled with what's available"
-        match_score = 60
-
     return jsonify({
-        "suggestion": suggestion,
-        "reason": reason,
-        "match_score": match_score,
-        "occasion": occasion,
-        "weather": weather_desc
+        'status': 'ok',
+        'classes': class_names,
+        'types': APP_TYPES,
+        'colors': COLOR_NAMES,
+        'occasions': list(OCCASION_FIT.keys()),
     })
 
+
+@app.route('/classify', methods=['POST'])
+@require_auth
+def classify():
+    if 'image' not in request.files:
+        return jsonify({'error': 'no_image', 'message': 'No image was sent.'}), 400
+    image_bytes = request.files['image'].read()
+    if not image_bytes:
+        return jsonify({'error': 'no_image', 'message': 'The image was empty.'}), 400
+    try:
+        return jsonify(predict_clothing(image_bytes))
+    except (UnidentifiedImageError, OSError):
+        return jsonify({'error': 'bad_image',
+                        'message': 'Could not read that image. Try a JPEG or PNG photo.'}), 400
+
+
+@app.route('/suggest', methods=['POST'])
+@require_auth
+def suggest():
+    data = request.get_json(silent=True) or {}
+    result = recommend(
+        items=data.get('items', []),
+        occasion=data.get('occasion', 'Casual'),
+        history=data.get('history', []),
+        exclude_keys=data.get('exclude_keys', []),
+    )
+    status = 200 if 'error' not in result else 422
+    return jsonify(result), status
+
+
+@app.route('/match', methods=['POST'])
+@require_auth
+def match_piece():
+    """Rank the tops that go with a pair of pants, or the pants that go with a top."""
+    data = request.get_json(silent=True) or {}
+    occasion = data.get('occasion')
+    result = match(
+        anchor_id=data.get('anchor_id'),
+        items=data.get('items', []),
+        occasion=occasion if occasion in OCCASION_FIT else None,
+        history=data.get('history', []),
+    )
+    return jsonify(result), (200 if 'error' not in result else 422)
+
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # debug's auto-reloader would load the model twice; opt in with FLASK_DEBUG=1
+    app.run(debug=os.environ.get('FLASK_DEBUG') == '1', host='0.0.0.0',
+            port=int(os.environ.get('PORT', 5000)))
